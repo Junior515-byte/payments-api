@@ -1,0 +1,52 @@
+# Levanta todo el sistema: docker compose up --build
+# API + Swagger: http://localhost:3000/docs
+x-app-env: &app-env
+  DATABASE_URL: postgresql://postgres:postgres@db:5432/payments
+  NODE_ENV: demo
+  LOG_LEVEL: info
+  GATEWAY_WEBHOOK_SECRET: demo-gateway-secret
+  MERCHANT_WEBHOOK_URL: http://api:3000/simulator/merchant/webhooks
+  MERCHANT_WEBHOOK_SECRET: demo-merchant-secret
+  PAYMENT_TTL_MINUTES: "15"
+  ENABLE_SIMULATOR: "true"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payments
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      retries: 20
+
+  migrate:
+    build: .
+    command: ["node", "dist/db/migrate.js"]
+    environment: *app-env
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      disable: true
+
+  api:
+    build: .
+    environment: *app-env
+    ports: ["3000:3000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    build: .
+    command: ["node", "dist/worker.js"]
+    environment: *app-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      disable: true
+
+volumes:
+  pgdata:
